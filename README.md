@@ -13,24 +13,108 @@
 
 ---
 
-## 📦 Available Actions
-
-### 1. `extract-changelog`
-A zero-dependency composite GitHub Action that parses `CHANGELOG.md` and extracts the release notes for a specific version.
-
-* **Works out of the box** on `ubuntu-latest`, `macos-latest`, and `windows-latest` runners.
-* **Intelligent Version Matching**: Automatically strips leading `v` and build metadata (`+1`, `+25`, etc.).
-* **Flexible Headings**: Supports `## 1.0.0`, `## [1.0.0]`, `## v1.0.0` with optional date annotations (e.g., `## [1.0.0] - 2026-09-29`).
-* **Safe Fallback**: Generates clean fallback notes if the section isn't found.
-* **Exports Both Ways**: Provides a file output (`extracted_release_notes.md`) and a multiline step output string (`${{ steps.changelog.outputs.notes }}`).
+## 📚 Table of Contents
+- [Reusable Workflows](#-reusable-workflows)
+  - [1. Flutter CI (`flutter-ci.yml`)](#1-flutter-ci-flutter-ciyml)
+  - [2. Dart CI (`dart-ci.yml`)](#2-dart-ci-dart-ciyml)
+  - [3. Auto Release (`reusable-release.yml`)](#3-auto-release-reusable-releaseyml)
+- [Composite Actions](#-composite-actions)
+  - [extract-changelog](#extract-changelog)
+- [License](#-license)
 
 ---
 
-## 🚀 Quickstart
+## 🔄 Reusable Workflows
 
-### Basic Example
+### 1. Flutter CI (`flutter-ci.yml`)
+Runs Flutter setup, caching, `flutter pub get`, static analysis (`--fatal-infos`), and tests.
 
-Add this step to your release workflow:
+In your Flutter project (e.g. `nano-hub`, `nano-core`):
+`.github/workflows/ci.yml`:
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  ci:
+    uses: durvalperipato/nano-workflows/.github/workflows/flutter-ci.yml@v1
+```
+
+#### Optional Inputs:
+| Input | Description | Type | Default |
+| :--- | :--- | :---: | :---: |
+| `flutter_channel` | Flutter channel | `string` | `'stable'` |
+| `flutter_version` | Specific Flutter version (empty uses channel) | `string` | `''` |
+| `fatal_infos` | Treat analysis info warnings as fatal errors | `boolean` | `true` |
+| `run_tests` | Run flutter test suite | `boolean` | `true` |
+
+---
+
+### 2. Dart CI (`dart-ci.yml`)
+Runs Dart SDK setup, `dart pub get`, static analysis, and tests. Ideal for pure Dart packages, CLI tools, and servers (`nano-core-mcp`, `nano-agents`).
+
+In your Dart project:
+`.github/workflows/ci.yml`:
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  ci:
+    uses: durvalperipato/nano-workflows/.github/workflows/dart-ci.yml@v1
+```
+
+---
+
+### 3. Auto Release (`reusable-release.yml`)
+Extracts version from `pubspec.yaml`, checks for duplicate tags, extracts version-specific notes from `CHANGELOG.md`, and creates the GitHub Release & Tag. Supports optional deploy hooks (e.g., Render webhooks).
+
+In any project:
+`.github/workflows/release.yml`:
+```yaml
+name: Auto Release
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  release:
+    uses: durvalperipato/nano-workflows/.github/workflows/reusable-release.yml@v1
+    secrets: inherit
+```
+
+#### Example with Deploy Webhook (e.g. `nano-core-mcp` on Render):
+```yaml
+name: Auto Release & Tagging
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  release:
+    uses: durvalperipato/nano-workflows/.github/workflows/reusable-release.yml@v1
+    secrets:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+```
+
+---
+
+## 📦 Composite Actions
+
+### `extract-changelog`
+A zero-dependency composite GitHub Action that parses `CHANGELOG.md` and extracts the release notes for a specific version.
 
 ```yaml
 - name: Extract Changelog
@@ -39,77 +123,6 @@ Add this step to your release workflow:
   with:
     version: '1.0.0'
 ```
-
-### Full Release Workflow Example (Flutter / Dart)
-
-```yaml
-name: Release
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Extract Version from pubspec.yaml
-        id: get_version
-        run: |
-          VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Extract Changelog Notes
-        id: changelog
-        uses: durvalperipato/nano-workflows/extract-changelog@v1
-        with:
-          version: ${{ steps.get_version.outputs.version }}
-          changelog_path: 'CHANGELOG.md'
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "v${{ steps.get_version.outputs.version }}"
-          name: "Release v${{ steps.get_version.outputs.version }}"
-          body_path: ${{ steps.changelog.outputs.notes_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
----
-
-## ⚙️ Action Reference: `extract-changelog`
-
-### Inputs
-
-| Input | Description | Required | Default |
-| :--- | :--- | :---: | :--- |
-| `version` | Version string to extract (e.g. `1.0.0`, `v1.0.0`, `1.0.0+1`) | **Yes** | — |
-| `changelog_path` | Relative path to your changelog file | No | `CHANGELOG.md` |
-| `output_file` | Output file path to write extracted markdown | No | `extracted_release_notes.md` |
-| `fallback_message` | Custom text if header is missing in changelog | No | `Release notes for v{version}` |
-
-### Outputs
-
-| Output | Description |
-| :--- | :--- |
-| `notes` | The extracted markdown release notes as a multiline string. |
-| `notes_file` | Path to the generated file containing the notes. |
-| `found` | Boolean (`true` or `false`) indicating if the section was matched. |
-
----
-
-## 🗺️ Ecosystem Roadmap
-- [x] Composite Action: `extract-changelog`
-- [ ] Reusable Workflow: `flutter-ci.yml` (Lint, Test, Analyze)
-- [ ] Reusable Workflow: `flutter-release.yml` (Tagging, Release, Web deployment)
-- [ ] Reusable Workflow: `package-publish.yml` (pub.dev automated publishing)
 
 ---
 

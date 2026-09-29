@@ -1,0 +1,121 @@
+name: Reusable Release
+
+on:
+  workflow_call:
+    inputs:
+      deploy_webhook_url:
+        description: 'Optional webhook URL to trigger external deployment (e.g. Render)'
+        type: string
+        required: false
+        default: ''
+      changelog_path:
+        description: 'Path to CHANGELOG.md'
+        type: string
+        required: false
+        default: 'CHANGELOG.md'
+    secrets:
+      RELEASE_TOKEN:
+        description: 'Optional custom PAT for release. Falls back to GITHUB_TOKEN'
+        required: false
+      RENDER_DEPLOY_HOOK_URL:
+        description: 'Optional Render deploy hook URL passed as secret'
+        required: false
+    outputs:
+      released:
+        description: 'Whether a new release was created ("true" or "false")'
+        value: ${{ jobs.release.outputs.released }}
+      version:
+        description: 'Extracted version'
+        value: ${{ jobs.release.outputs.version }}
+      tag:
+        description: 'Created Git tag name'
+        value: ${{ jobs.release.outputs.tag }}
+
+jobs:
+  release:
+    name: Create Tag and GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.check_release.outputs.released }}
+      version: ${{ steps.extract_version.outputs.version }}
+      tag: ${{ steps.extract_version.outputs.tag }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Version from pubspec.yaml
+        id: extract_version
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if Tag Already Exists
+        id: check_tag
+        shell: bash
+        run: |
+          TAG="${{ steps.extract_version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists. Skipping release."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG does not exist. Proceeding with release."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Changelog Entry
+        if: steps.check_tag.outputs.exists == 'false'
+        id: changelog
+        uses: durvalperipato/nano-workflows/extract-changelog@v1
+        with:
+          version: ${{ steps.extract_version.outputs.version }}
+          changelog_path: ${{ inputs.changelog_path }}
+          output_file: release_notes.md
+
+      - name: Create GitHub Release and Tag
+        id: create_release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.extract_version.outputs.tag }}
+          name: ${{ steps.extract_version.outputs.tag }}
+          body_path: ${{ steps.changelog.outputs.notes_file }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Determine Release Outcome
+        id: check_release
+        shell: bash
+        run: |
+          if [ "${{ steps.check_tag.outputs.exists }}" = "false" ]; then
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger Webhook Deployment
+        if: steps.check_tag.outputs.exists == 'false'
+        shell: bash
+        env:
+          WEBHOOK_URL_INPUT: ${{ inputs.deploy_webhook_url }}
+          WEBHOOK_URL_SECRET: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          TAG_NAME: ${{ steps.extract_version.outputs.tag }}
+        run: |
+          TARGET_URL="${WEBHOOK_URL_SECRET:-$WEBHOOK_URL_INPUT}"
+          if [ -n "$TARGET_URL" ]; then
+            echo "Triggering deployment webhook for $TAG_NAME..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TARGET_URL")
+            echo "Webhook responded with HTTP $HTTP_CODE"
+          else
+            echo "No deploy webhook configured. Skipping."
+          fi

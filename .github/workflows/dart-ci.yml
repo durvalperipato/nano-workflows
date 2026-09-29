@@ -1,0 +1,49 @@
+name: Dart CI
+
+on:
+  workflow_call:
+    inputs:
+      dart_sdk:
+        description: 'Dart SDK version to use'
+        type: string
+        default: 'stable'
+      fatal_infos:
+        description: 'Treat info level analysis warnings as fatal errors'
+        type: boolean
+        default: true
+      run_tests:
+        description: 'Whether to run test suite'
+        type: boolean
+        default: true
+
+jobs:
+  validate:
+    name: Lint, Analyze & Test (Dart)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ inputs.dart_sdk }}
+
+      - name: Install Dependencies
+        shell: bash
+        run: dart pub get
+
+      - name: Analyze Project Source
+        shell: bash
+        run: |
+          if [ "${{ inputs.fatal_infos }}" = "true" ]; then
+            dart analyze --fatal-infos
+          else
+            dart analyze
+          fi
+
+      - name: Run Tests
+        if: inputs.run_tests
+        shell: bash
+        run: dart test

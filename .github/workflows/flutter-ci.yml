@@ -1,0 +1,55 @@
+name: Flutter CI
+
+on:
+  workflow_call:
+    inputs:
+      flutter_channel:
+        description: 'Flutter SDK channel to use'
+        type: string
+        default: 'stable'
+      flutter_version:
+        description: 'Specific Flutter SDK version (leave empty for channel default)'
+        type: string
+        default: ''
+      fatal_infos:
+        description: 'Treat info level analysis warnings as fatal errors'
+        type: boolean
+        default: true
+      run_tests:
+        description: 'Whether to run test suite'
+        type: boolean
+        default: true
+
+jobs:
+  validate:
+    name: Lint, Analyze & Test (Flutter)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ inputs.flutter_channel }}
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Install Dependencies
+        shell: bash
+        run: flutter pub get
+
+      - name: Analyze Project Source
+        shell: bash
+        run: |
+          if [ "${{ inputs.fatal_infos }}" = "true" ]; then
+            flutter analyze --fatal-infos
+          else
+            flutter analyze
+          fi
+
+      - name: Run Tests
+        if: inputs.run_tests
+        shell: bash
+        run: flutter test
