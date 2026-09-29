@@ -73,11 +73,47 @@ jobs:
       - name: Extract Changelog Entry
         if: steps.check_tag.outputs.exists == 'false'
         id: changelog
-        uses: durvalperipato/nano-workflows/extract-changelog@v1
-        with:
-          version: ${{ steps.extract_version.outputs.version }}
-          changelog_path: ${{ inputs.changelog_path }}
-          output_file: release_notes.md
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ steps.extract_version.outputs.version }}
+          INPUT_CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, re
+          raw_ver = os.environ.get('INPUT_VERSION', '').strip()
+          clean_ver = raw_ver.lstrip('v').split('+')[0].strip()
+          path = os.environ.get('INPUT_CHANGELOG_PATH', 'CHANGELOG.md').strip()
+          output_file = 'release_notes.md'
+          fallback = f"Release notes for v{clean_ver}"
+          notes = ""
+
+          if os.path.exists(path):
+              with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                  content = f.read()
+              lines = content.splitlines()
+              pattern = re.compile(r'^##\s+\[?v?' + re.escape(clean_ver) + r'(\]|\b)')
+              collecting = False
+              extracted = []
+              for line in lines:
+                  if not collecting:
+                      if pattern.match(line.strip()):
+                          collecting = True
+                          continue
+                  else:
+                      if line.startswith('## '):
+                          break
+                      extracted.append(line)
+              text = '\n'.join(extracted).strip()
+              if text:
+                  notes = text
+
+          if not notes:
+              notes = fallback
+
+          with open(output_file, 'w', encoding='utf-8') as f:
+              f.write(notes + '\n')
+          PYEOF
+          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release and Tag
         id: create_release
@@ -86,7 +122,7 @@ jobs:
         with:
           tag_name: ${{ steps.extract_version.outputs.tag }}
           name: ${{ steps.extract_version.outputs.tag }}
-          body_path: ${{ steps.changelog.outputs.notes_file }}
+          body_path: release_notes.md
           generate_release_notes: true
           draft: false
           prerelease: false
