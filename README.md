@@ -84,6 +84,9 @@ In any project:
 ```yaml
 name: Auto Release
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
@@ -96,7 +99,10 @@ jobs:
 
 #### Example with Deploy Webhook (e.g. `nano-core-mcp` on Render):
 ```yaml
-name: Auto Release & Tagging
+name: Auto Release
+
+permissions:
+  contents: write & Tagging
 
 on:
   push:
