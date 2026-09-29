@@ -1,0 +1,39 @@
+name: Test Action
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Test CHANGELOG.md
+        run: |
+          cat << 'CL' > CHANGELOG.md
+          # Changelog
+
+          ## 1.0.0 (2026-09-29)
+          - Initial release of nano-workflows.
+          - Added extract-changelog composite action.
+
+          ## 0.9.0
+          - Beta preview notes.
+          CL
+
+      - name: Test extract-changelog
+        id: test_extract
+        uses: ./extract-changelog
+        with:
+          version: '1.0.0+1'
+
+      - name: Verify Extracted Content
+        run: |
+          grep -q "Initial release of nano-workflows." extracted_release_notes.md
+          echo "Verified notes output file successfully!"
+          echo "Output found: ${{ steps.test_extract.outputs.found }}"
+          test "${{ steps.test_extract.outputs.found }}" = "true"

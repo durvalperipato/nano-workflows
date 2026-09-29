@@ -1,0 +1,112 @@
+name: 'Extract Changelog'
+description: 'Fast, zero-dependency composite GitHub Action to extract release notes from CHANGELOG.md for a given version.'
+author: 'Durval Peripato'
+
+branding:
+  icon: 'file-text'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'Version string to extract (e.g. "1.0.0", "v1.0.0" or "1.0.0+1")'
+    required: true
+  changelog_path:
+    description: 'Path to CHANGELOG.md'
+    required: false
+    default: 'CHANGELOG.md'
+  output_file:
+    description: 'Target path to write the extracted markdown release notes'
+    required: false
+    default: 'extracted_release_notes.md'
+  fallback_message:
+    description: 'Fallback text to use if the version header is not found'
+    required: false
+    default: ''
+
+outputs:
+  notes:
+    description: 'The extracted release notes content'
+    value: ${{ steps.extract.outputs.notes }}
+  notes_file:
+    description: 'The path to the file containing extracted release notes'
+    value: ${{ steps.extract.outputs.notes_file }}
+  found:
+    description: 'Whether the version section was found in the changelog ("true" or "false")'
+    value: ${{ steps.extract.outputs.found }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: extract
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        INPUT_OUTPUT_FILE: ${{ inputs.output_file }}
+        INPUT_FALLBACK_MESSAGE: ${{ inputs.fallback_message }}
+      run: |
+        python3 - << 'PYEOF'
+        import os
+        import re
+        import sys
+
+        raw_ver = os.environ.get('INPUT_VERSION', '').strip()
+        clean_ver = raw_ver.lstrip('v').split('+')[0].strip()
+        changelog_path = os.environ.get('INPUT_CHANGELOG_PATH', 'CHANGELOG.md').strip()
+        output_file = os.environ.get('INPUT_OUTPUT_FILE', 'extracted_release_notes.md').strip()
+        fallback = os.environ.get('INPUT_FALLBACK_MESSAGE', '').strip()
+
+        if not fallback:
+            fallback = f"Release notes for v{clean_ver}"
+
+        found = False
+        notes = ""
+
+        if os.path.exists(changelog_path):
+            with open(changelog_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+
+            lines = content.splitlines()
+            pattern = re.compile(r'^##\s+\[?v?' + re.escape(clean_ver) + r'(\]|\b)')
+
+            collecting = False
+            extracted_lines = []
+
+            for line in lines:
+                if not collecting:
+                    if pattern.match(line.strip()):
+                        collecting = True
+                        continue
+                else:
+                    if line.startswith('## '):
+                        break
+                    extracted_lines.append(line)
+
+            extracted_text = '\n'.join(extracted_lines).strip()
+            if extracted_text:
+                notes = extracted_text
+                found = True
+
+        if not notes:
+            notes = fallback
+
+        # Ensure directory exists for output file
+        parent_dir = os.path.dirname(output_file)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(notes + "\n")
+
+        # Set GitHub Step Outputs
+        gh_output = os.environ.get('GITHUB_OUTPUT')
+        if gh_output:
+            with open(gh_output, 'a', encoding='utf-8') as f:
+                f.write(f"found={'true' if found else 'false'}\n")
+                f.write(f"notes_file={output_file}\n")
+                delimiter = "GH_ACTION_CHANGELOG_EOF"
+                f.write(f"notes<<{delimiter}\n{notes}\n{delimiter}\n")
+
+        print(f"✅ Successfully processed changelog for version '{clean_ver}' (Found: {found})")
+        print(f"📄 Output written to: {output_file}")
+        PYEOF
