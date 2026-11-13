@@ -29,7 +29,7 @@
 ### 1. Flutter CI (`flutter-ci.yml`)
 Runs Flutter setup, caching, `flutter pub get`, static analysis (`--fatal-infos`), and tests.
 
-In your Flutter project (e.g. `nano-hub`, `nano-core`):
+In your Flutter project (e.g. `nano-devs-hub`, `nano-core`):
 `.github/workflows/ci.yml`:
 ```yaml
 name: CI
